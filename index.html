@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WebRTC P2P</title>
+</head>
+<body>
+    <h2>WebRTC 1:1 P2P</h2>
+    <h3 id="room"></h3>
+    <button id="toggleVideo">비디오 OFF</button>
+    <button id="toggleAudio">오디오 OFF</button>
+    <video id="localVideo" autoplay muted playsinline></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="peer.js"></script>
+</body>
+</html>
