@@ -1,6 +1,8 @@
 // peer.js
+let is_origin = false;
 let pcs = {}; // 상대 peer의 id와 RTCRemoteConnection을 매핑
 let localStream = null; // 로컬 미디어 스트림을 저장할 변수
+let receivedStream = null;
 let constraints = {
     'video': {
         width: 640,
@@ -10,8 +12,9 @@ let constraints = {
 }
 
 const socket = io.connect();
-const localVideo = document.getElementById('localVideo'); // html의 localVideo 요소
-const remoteVideo = document.getElementById('remoteVideo'); // html의 remoteVideo 요소
+const videoElement = document.getElementById('video'); // html의 video 요소
+//const localVideo = document.getElementById('localVideo'); // html의 localVideo 요소
+//const remoteVideo = document.getElementById('remoteVideo'); // html의 remoteVideo 요소
 const btnVideo = document.getElementById('toggleVideo'); // 비디오 토글 버튼
 const btnAudio = document.getElementById('toggleAudio'); // 오디오 토글 버튼
 const roomElement = document.getElementById('room'); // html의 방 이름 표시 요소
@@ -46,13 +49,22 @@ socket.on('connect', () => {
         roomElement.textContent = "no room";
     });
 
-    socket.on('room_joined', (room) => {
+    socket.on('room_joined', ({room, origin}) => {
+        if (origin) {
+            console.log(`You are the origin peer in ${room}`);
+            is_origin = true;
+            videoElement.srcObject = localStream;
+        }
         roomElement.textContent = `joined in ${room}`;
     });
 
     // 새로운 피어가 접속했을 때
     socket.on('new_peer', async (peerId) => {
-        let pc = createPeerConnection(socket, peerId, localStream);
+        let stream = receivedStream;
+        if (is_origin) {
+            stream = localStream;
+        }
+        let pc = createPeerConnection(socket, peerId, stream);
         pcs[peerId] = pc;
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -62,7 +74,7 @@ socket.on('connect', () => {
 
     // offer를 받았을 때 처리
     socket.on('offer', async ({from, offer}) => {
-        let pc = createPeerConnection(socket, from, localStream);
+        let pc = createPeerConnection(socket, from, null);
         pcs[from] = pc;
         await pc.setRemoteDescription(offer);
         const answer = await pc.createAnswer();
@@ -94,7 +106,7 @@ socket.on('connect', () => {
             pcs[peerId].close();
             delete pcs[peerId];
         }
-        remoteVideo.srcObject = null;
+        //remoteVideo.srcObject = null;
     });
 });
 
@@ -102,7 +114,6 @@ socket.on('connect', () => {
 async function getLocalStream() {
     // 브라우저로부터 미디어 스트림을 가져와 localVideo의 소스로 설정
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    localVideo.srcObject = localStream;
 
     // 방에 참여 요청
     socket.emit('join');
@@ -118,7 +129,8 @@ function createPeerConnection(socket, remoteSocketId, stream) {
     // track을 통해 실시간으로 미디어 데이터를 수신 (WebRTC가 자동적으로 처리)
     pc.ontrack = (event) => {
         console.log(`Track received from ${remoteSocketId}`);
-        remoteVideo.srcObject = event.streams[0];
+        receivedStream = event.streams[0];
+        videoElement.srcObject = receivedStream;
     };
 
     // ICE candidate가 생성되면 비동기적으로 'candidate' 이벤트를 emit
@@ -138,7 +150,7 @@ function createPeerConnection(socket, remoteSocketId, stream) {
         }
     }
 
-    // 내 local track을 Peer Connection에 추가
+    // 내 track을 Peer Connection에 추가
     // track을 추가하면 내 미디어 데이터를 실시간으로 전송 (WebRTC가 자동적으로 처리)
     if (stream) {
         stream.getTracks().forEach(track => {
