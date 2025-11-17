@@ -95,6 +95,7 @@ socket.on('connect', () => {
         let pc = pcs[from];
         if (!pc) return;
         await pc.addIceCandidate(candidate);
+        console.log("Candidate added :", candidate);
     } catch (e) {
         console.error('Error adding candidate:', e);
     }
@@ -113,7 +114,7 @@ socket.on('connect', () => {
 // 로컬 미디어 스트림을 가져온 후 join 이벤트를 emit하는 async 함수
 async function getLocalStream() {
     // 브라우저로부터 미디어 스트림을 가져와 localVideo의 소스로 설정
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    localStream = await navigator.mediaDevices.getDisplayMedia(constraints);
 
     // 방에 참여 요청
     socket.emit('join');
@@ -136,19 +137,30 @@ function createPeerConnection(socket, remoteSocketId, stream) {
     // ICE candidate가 생성되면 비동기적으로 'candidate' 이벤트를 emit
     pc.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log('candidate found : ', event.candidate);
             socket.emit('candidate', {to: remoteSocketId, candidate: event.candidate});
         }
     };
 
     // Peer Connection의 ICE 상태가 변경될 때
     pc.oniceconnectionstatechange = () => {
-        console.log('ICE state:', pc.iceConnectionState);
+        console.log('ICE state changed :', pc.iceConnectionState);
         // 연결이 성사되었을 때 peer_connected 이벤트를 emit
         if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-            console.log('P2P connection completed');
             socket.emit('peer_connected', remoteSocketId);
+            print_stats(pc, "candidate-pair");
         }
     }
+
+    // Peer Connection의 Gathering 상태가 변경될 때
+    pc.onicegatheringstatechange = () => {
+        console.log('Gathering state changed :', pc.iceGatheringState);
+        if (pc.iceGatheringState === 'complete') {
+            print_stats(pc, "local-candidate");
+        }
+    }
+
+    
 
     // 내 track을 Peer Connection에 추가
     // track을 추가하면 내 미디어 데이터를 실시간으로 전송 (WebRTC가 자동적으로 처리)
@@ -159,4 +171,26 @@ function createPeerConnection(socket, remoteSocketId, stream) {
     }
 
     return pc;
+}
+
+function print_stats(pc, type="all") {
+    pc.getStats(null).then((stats) => {
+        let statsOutput = "";
+
+        stats.forEach((report) => {
+            if (report.type === type || type === "all") {
+                statsOutput +=
+                `Report: ${report.type}\nID: ${report.id}\nTimestamp: ${report.timestamp}\n`;
+
+                Object.keys(report).forEach((statName) => {
+                    if (statName !== "id" && statName !== "timestamp" && statName !== "type") {
+                        statsOutput += `${statName}: ${report[statName]}\n`;
+                    }
+                });
+                statsOutput += "-----------------------------------\n";
+            }
+        });
+
+        console.log(statsOutput);
+    });
 }
