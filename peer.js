@@ -10,6 +10,7 @@ let constraints = {
     },
     'audio': true
 }
+let restartCount = 0;
 
 const socket = io.connect();
 const videoElement = document.getElementById('video'); // html의 video 요소
@@ -60,16 +61,15 @@ socket.on('connect', () => {
 
     // 새로운 피어가 접속했을 때
     socket.on('new_peer', async (peerId) => {
-        let stream = receivedStream;
         if (is_origin) {
             stream = localStream;
+            let pc = createPeerConnection(socket, peerId, stream);
+            pcs[peerId] = pc;
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('offer', {to: peerId, offer});
+            console.log(`Offer sent to new peer ${peerId}`);
         }
-        let pc = createPeerConnection(socket, peerId, stream);
-        pcs[peerId] = pc;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', {to: peerId, offer});
-        console.log(`Offer sent to new peer ${peerId}`);
     });
 
     // offer를 받았을 때 처리
@@ -143,13 +143,15 @@ function createPeerConnection(socket, remoteSocketId, stream) {
     };
 
     // Peer Connection의 ICE 상태가 변경될 때
-    pc.oniceconnectionstatechange = () => {
+    pc.oniceconnectionstatechange = async () => {
         console.log('ICE state changed :', pc.iceConnectionState);
         // 연결이 성사되었을 때 peer_connected 이벤트를 emit
         if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
             socket.emit('peer_connected', remoteSocketId);
             print_stats(pc, "candidate-pair");
+            restartCount = 0;
         }
+        
     }
 
     // Peer Connection의 Gathering 상태가 변경될 때
@@ -160,6 +162,33 @@ function createPeerConnection(socket, remoteSocketId, stream) {
         }
     }
 
+    pc.onconnectionstatechange = async () => {
+        if (pc.connectionState === 'failed') { // restart logic
+            if (restartCount < 10) {
+                // pc.restartIce();
+                restartCount++;
+                console.log(`Try ICE Restart (${restartCount}/${10})`);
+
+                setTimeout(async () => {
+                    if (pc.iceConnectionState !== 'failed' && pc.iceConnectionState !== 'disconnected') {
+                        return;
+                    }
+
+                    try {
+                        // iceRestart 옵션으로 새로운 Offer 생성
+                        const offer = await pc.createOffer({ iceRestart: true });
+                        await pc.setLocalDescription(offer);
+                        
+                        // 상대방에게 전송
+                        socket.emit('offer', { to: remoteSocketId, offer: offer });
+                        console.log('Offer resent to peer : ', remoteSocketId);
+                    } catch (err) {
+                        console.error("Error:", err);
+                    }
+                }, 1000);
+            }
+        }
+    }
     
 
     // 내 track을 Peer Connection에 추가

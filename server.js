@@ -27,7 +27,7 @@ io.on('connection', socket => {
         const room = 'room1';
         let origin = false;
         const roomClients = io.sockets.adapter.rooms.get(room) || new Set(); // room에 속한 소켓 ID들의 집합
-        let last_peer = roomClients.size > 0 ? Array.from(roomClients)[roomClients.size - 1] : null;
+        let origin_peer = roomClients.size > 0 ? Array.from(roomClients)[0] : null;
 
         // 방에 10명 이상 있다면 방 참여 거부
         if (roomClients.size >= 10) {
@@ -39,10 +39,10 @@ io.on('connection', socket => {
         }
 
         socket.join(room);
-        socket.emit('room_joined', {room, origin})
+        socket.emit('room_joined', {room, origin});
         console.log(`[0-1] ${socket.id} joined ${room}`);
 
-        io.to(last_peer).emit('new_peer', socket.id); // 새 피어가 왔다고 알림
+        io.to(origin_peer).emit('new_peer', socket.id); // 새 피어가 왔다고 알림
 
         // sdp(offer)를 전달
         socket.on('offer', ({to, offer}) => {
